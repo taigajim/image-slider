@@ -1,0 +1,22 @@
+[
+  {
+    "name": "hanasaaren_voimalaitos",
+    "before": "imgSlider/hanasaaren_voimalaitos_a.jpg",
+    "after": "imgSlider/hanasaaren_voimalaitos_b.jpg"
+  },
+  {
+    "name": "rautatieasema",
+    "before": "imgSlider/rautatieasema_a.jpg",
+    "after": "imgSlider/rautatieasema_b.jpg"
+  },
+  {
+    "name": "sompasaari",
+    "before": "imgSlider/sompasaari_a.jpg",
+    "after": "imgSlider/sompasaari_b.jpg"
+  },
+  {
+    "name": "sompasaari",
+    "before": "imgSlider/sompasaari_a.jpg",
+    "after": "imgSlider/sompasaari_b.jpg"
+  }
+]
