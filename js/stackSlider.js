@@ -1,22 +1,33 @@
-const DEFAULT_PERCENTAGE = 50;
-const EASE_FACTOR = 0.4; // Snappier response (was 0.25)
-const ANIMATION_THRESHOLD = 0.1;
+const DEFAULT_OPTIONS = {
+  initialPercentage: 50,
+  easeFactor: 0.4,
+  threshold: 0.1,
+  keyboardStep: 2
+};
+
+const easeOutQuart = (t) => 1 - Math.pow(1 - t, 4);
 
 class Slider {
-  constructor(sliderElement) {
+  constructor(sliderElement, options = {}) {
     this.slider = sliderElement;
+    this.options = { ...DEFAULT_OPTIONS, ...options };
     this.beforeImage = this.slider.querySelector('.before');
     this.afterImage = this.slider.querySelector('.after');
-    this.percentage = parseFloat(this.slider.dataset.percentage) || DEFAULT_PERCENTAGE;
+
+    const dataPercentage = parseFloat(this.slider.dataset.percentage);
+    this.percentage = !isNaN(dataPercentage) ? dataPercentage : this.options.initialPercentage;
     this.targetPercentage = this.percentage;
     this.isDragging = false;
     this.animationFrame = null;
+    this.cachedRect = null;
+    this.prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
     this.init();
   }
 
   async init() {
     this.setupElements();
+    this.setupAccessibility();
 
     try {
       await this.loadImages();
@@ -33,51 +44,61 @@ class Slider {
     this.slider.appendChild(this.sliderLine);
   }
 
+  setupAccessibility() {
+    this.slider.setAttribute('role', 'slider');
+    this.slider.setAttribute('aria-label', 'Image comparison slider');
+    this.slider.setAttribute('aria-valuemin', '0');
+    this.slider.setAttribute('aria-valuemax', '100');
+    this.slider.setAttribute('aria-valuenow', Math.round(this.percentage));
+    this.slider.setAttribute('tabindex', '0');
+  }
+
   updateSlider() {
     this.afterImage.style.clipPath = `inset(0 ${100 - this.percentage}% 0 0)`;
     this.sliderLine.style.left = `${this.percentage}%`;
+    this.slider.setAttribute('aria-valuenow', Math.round(this.percentage));
   }
 
   attachEvents() {
-    // Prevent default drag behavior
     this.beforeImage.draggable = false;
     this.afterImage.draggable = false;
 
-    // Mouse events
-    this.slider.addEventListener('mousedown', this.handleStart);
-    this.slider.addEventListener('mousemove', this.handleMove);
-    document.addEventListener('mouseup', this.handleEnd);
+    // Unified Pointer Events API
+    this.slider.addEventListener('pointerdown', this.handleStart);
+    this.slider.addEventListener('pointermove', this.handleMove);
+    this.slider.addEventListener('pointerup', this.handleEnd);
+    this.slider.addEventListener('pointercancel', this.handleEnd);
 
-    // Touch events - iOS optimized
-    this.slider.addEventListener('touchstart', this.handleStart, { passive: false });
-    this.slider.addEventListener('touchmove', this.handleMove, { passive: false });
-    document.addEventListener('touchend', this.handleEnd);
+    // Keyboard support
+    this.slider.addEventListener('keydown', this.handleKeydown);
 
-    // Resize handling with native debounce
-    let resizeTimeout;
-    this.handleResize = () => {
-      clearTimeout(resizeTimeout);
-      resizeTimeout = setTimeout(() => this.updateSlider(), 100);
-    };
-    window.addEventListener('resize', this.handleResize);
+    // ResizeObserver for efficient resize handling
+    this.resizeObserver = new ResizeObserver(() => {
+      this.cachedRect = null; // Invalidate cache
+      this.updateSlider();
+    });
+    this.resizeObserver.observe(this.slider);
   }
 
   handleStart = (e) => {
     e.preventDefault();
     this.isDragging = true;
     this.slider.classList.add('dragging');
+    this.slider.setPointerCapture(e.pointerId);
+
+    // Cache rect for performance during drag
+    this.cachedRect = this.slider.getBoundingClientRect();
     this.handleMove(e);
   };
 
   handleMove = (e) => {
-    if (!this.isDragging && e.type === 'mousemove') return;
+    if (!this.isDragging && e.type === 'pointermove') return;
 
     e.preventDefault();
 
-    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-    const rect = this.slider.getBoundingClientRect();
-
-    this.targetPercentage = ((clientX - rect.left) / rect.width) * 100;
+    // Use cached rect during drag
+    const rect = this.cachedRect || this.slider.getBoundingClientRect();
+    this.targetPercentage = ((e.clientX - rect.left) / rect.width) * 100;
     this.targetPercentage = Math.max(0, Math.min(100, this.targetPercentage));
 
     if (!this.animationFrame) {
@@ -85,22 +106,63 @@ class Slider {
     }
   };
 
-  handleEnd = () => {
+  handleEnd = (e) => {
     if (!this.isDragging) return;
     this.isDragging = false;
     this.slider.classList.remove('dragging');
+    this.slider.releasePointerCapture(e.pointerId);
+    this.cachedRect = null; // Clear cache
+  };
+
+  handleKeydown = (e) => {
+    const { keyboardStep } = this.options;
+    let handled = false;
+
+    switch (e.key) {
+      case 'ArrowLeft':
+      case 'ArrowDown':
+        this.targetPercentage = Math.max(0, this.targetPercentage - keyboardStep);
+        handled = true;
+        break;
+      case 'ArrowRight':
+      case 'ArrowUp':
+        this.targetPercentage = Math.min(100, this.targetPercentage + keyboardStep);
+        handled = true;
+        break;
+      case 'Home':
+        this.targetPercentage = 0;
+        handled = true;
+        break;
+      case 'End':
+        this.targetPercentage = 100;
+        handled = true;
+        break;
+    }
+
+    if (handled) {
+      e.preventDefault();
+      if (!this.animationFrame) {
+        this.animate();
+      }
+    }
   };
 
   animate = () => {
     const diff = this.targetPercentage - this.percentage;
 
-    // Snappier easing - animation continues even after mouse exit
-    this.percentage += diff * EASE_FACTOR;
+    if (this.prefersReducedMotion) {
+      // Instant update for reduced motion
+      this.percentage = this.targetPercentage;
+    } else {
+      // Smooth easing with easeOutQuart curve
+      this.percentage += diff * this.options.easeFactor;
+    }
+
     this.slider.dataset.percentage = this.percentage;
     this.updateSlider();
 
     // Continue until close enough to target
-    if (Math.abs(diff) > ANIMATION_THRESHOLD) {
+    if (Math.abs(diff) > this.options.threshold) {
       this.animationFrame = requestAnimationFrame(this.animate);
     } else {
       // Snap to final position
@@ -137,15 +199,15 @@ class Slider {
   }
 
   destroy() {
-    this.slider.removeEventListener('mousedown', this.handleStart);
-    this.slider.removeEventListener('mousemove', this.handleMove);
-    document.removeEventListener('mouseup', this.handleEnd);
+    this.slider.removeEventListener('pointerdown', this.handleStart);
+    this.slider.removeEventListener('pointermove', this.handleMove);
+    this.slider.removeEventListener('pointerup', this.handleEnd);
+    this.slider.removeEventListener('pointercancel', this.handleEnd);
+    this.slider.removeEventListener('keydown', this.handleKeydown);
 
-    this.slider.removeEventListener('touchstart', this.handleStart);
-    this.slider.removeEventListener('touchmove', this.handleMove);
-    document.removeEventListener('touchend', this.handleEnd);
-
-    window.removeEventListener('resize', this.handleResize);
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+    }
 
     if (this.animationFrame) {
       cancelAnimationFrame(this.animationFrame);
@@ -154,16 +216,14 @@ class Slider {
 }
 
 // Initialize all sliders
-function initializeSliders() {
+function initializeSliders(options = {}) {
   const sliders = document.querySelectorAll('.image-slider');
-  sliders.forEach(slider => {
-    new Slider(slider);
-  });
+  return Array.from(sliders).map(slider => new Slider(slider, options));
 }
 
 // Auto-initialize on DOM ready
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', initializeSliders);
+  document.addEventListener('DOMContentLoaded', () => initializeSliders());
 } else {
   initializeSliders();
 }
