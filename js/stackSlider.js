@@ -63,7 +63,10 @@ class Slider {
     this.beforeImage.draggable = false;
     this.afterImage.draggable = false;
 
-    // Unified Pointer Events API
+    // Mouse hover - auto-follow without click
+    this.slider.addEventListener('mousemove', this.handleMove);
+
+    // Touch/pen - requires drag
     this.slider.addEventListener('pointerdown', this.handleStart);
     this.slider.addEventListener('pointermove', this.handleMove);
     this.slider.addEventListener('pointerup', this.handleEnd);
@@ -92,10 +95,11 @@ class Slider {
   };
 
   handleMove = (e) => {
-    // Auto-follow for mouse/pen, require drag for touch
-    const isTouch = e.pointerType === 'touch';
-    if (isTouch && !this.isDragging) return;
-    if (!isTouch && e.type !== 'pointermove') return;
+    // Mouse hover: always follow (no drag needed)
+    // Touch: requires drag
+    if (e.type === 'pointermove' && e.pointerType === 'touch' && !this.isDragging) {
+      return; // Touch requires drag
+    }
 
     e.preventDefault();
 
@@ -202,6 +206,7 @@ class Slider {
   }
 
   destroy() {
+    this.slider.removeEventListener('mousemove', this.handleMove);
     this.slider.removeEventListener('pointerdown', this.handleStart);
     this.slider.removeEventListener('pointermove', this.handleMove);
     this.slider.removeEventListener('pointerup', this.handleEnd);
