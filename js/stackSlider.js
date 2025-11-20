@@ -92,11 +92,14 @@ class Slider {
   };
 
   handleMove = (e) => {
-    if (!this.isDragging && e.type === 'pointermove') return;
+    // Auto-follow for mouse/pen, require drag for touch
+    const isTouch = e.pointerType === 'touch';
+    if (isTouch && !this.isDragging) return;
+    if (!isTouch && e.type !== 'pointermove') return;
 
     e.preventDefault();
 
-    // Use cached rect during drag
+    // Use cached rect during drag, or get fresh rect for mouse hover
     const rect = this.cachedRect || this.slider.getBoundingClientRect();
     this.targetPercentage = ((e.clientX - rect.left) / rect.width) * 100;
     this.targetPercentage = Math.max(0, Math.min(100, this.targetPercentage));

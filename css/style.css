@@ -67,7 +67,7 @@ body {
   outline: none;
 }
 
-.image-slider:focus {
+.image-slider:focus-visible {
   box-shadow: 0 0 0 3px var(--slider-focus-color);
 }
 
@@ -116,7 +116,7 @@ body {
 
 .slider-line:active,
 .image-slider.dragging .slider-line,
-.image-slider:focus .slider-line {
+.image-slider:focus-visible .slider-line {
   background-color: var(--slider-line-active);
   box-shadow: 0 0 2px rgba(255, 255, 255, 0.5);
 }
