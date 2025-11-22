@@ -13,7 +13,8 @@ class Slider {
     this.afterImage = this.slider.querySelector('.after');
 
     const dataPercentage = parseFloat(this.slider.dataset.percentage);
-    this.percentage = !isNaN(dataPercentage) ? dataPercentage : this.options.initialPercentage;
+    this.initialPercentage = !isNaN(dataPercentage) ? dataPercentage : this.options.initialPercentage;
+    this.percentage = this.initialPercentage;
     this.targetPercentage = this.percentage;
     this.isDragging = false;
     this.animationFrame = null;
@@ -21,6 +22,9 @@ class Slider {
     this.isMouseOver = false;
     this.resizeRAF = null;
     this.prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    this.isVisible = true; // Assume visible initially
+    this.isPaused = false; // Not paused by default
+    this.intersectionObserver = null;
 
     this.init();
   }
@@ -33,6 +37,7 @@ class Slider {
       await this.loadImages();
       this.updateSlider();
       this.attachEvents();
+      this.setupIntersectionObserver();
     } catch (error) {
       this.displayError(error);
     }
@@ -85,6 +90,35 @@ class Slider {
       }
     });
     this.resizeObserver.observe(this.slider);
+  }
+
+  setupIntersectionObserver() {
+    // Pause animations when slider is off-screen to save CPU/battery
+    this.intersectionObserver = new IntersectionObserver(
+      (entries) => {
+        entries.forEach((entry) => {
+          this.isVisible = entry.isIntersecting;
+
+          // Auto-pause when off-screen, auto-resume when visible (unless manually paused)
+          if (!this.isVisible && this.animationFrame) {
+            // Slider went off-screen, pause animation
+            cancelAnimationFrame(this.animationFrame);
+            this.animationFrame = null;
+          } else if (this.isVisible && !this.isPaused && !this.animationFrame) {
+            // Slider became visible and there's a pending target
+            if (Math.abs(this.targetPercentage - this.percentage) > this.options.threshold) {
+              this.animate();
+            }
+          }
+        });
+      },
+      {
+        // Pause when less than 10% of slider is visible
+        threshold: 0.1
+      }
+    );
+
+    this.intersectionObserver.observe(this.slider);
   }
 
   handlePointerEnter = (e) => {
@@ -190,6 +224,12 @@ class Slider {
   };
 
   animate = () => {
+    // Don't animate if paused or not visible
+    if (this.isPaused || !this.isVisible) {
+      this.animationFrame = null;
+      return;
+    }
+
     const diff = this.targetPercentage - this.percentage;
     const previousPercentage = this.percentage;
 
@@ -248,6 +288,71 @@ class Slider {
     console.error('Slider error:', error);
   }
 
+  // ==================== Public API Methods ====================
+
+  /**
+   * Pause the slider animations
+   */
+  pause() {
+    this.isPaused = true;
+    if (this.animationFrame) {
+      cancelAnimationFrame(this.animationFrame);
+      this.animationFrame = null;
+    }
+  }
+
+  /**
+   * Resume the slider animations
+   */
+  resume() {
+    this.isPaused = false;
+    // Only resume if visible and there's a pending animation
+    if (this.isVisible && !this.animationFrame) {
+      if (Math.abs(this.targetPercentage - this.percentage) > this.options.threshold) {
+        this.animate();
+      }
+    }
+  }
+
+  /**
+   * Set the slider percentage programmatically
+   * @param {number} value - Percentage value (0-100)
+   * @param {boolean} animate - Whether to animate to the new position (default: true)
+   */
+  setPercentage(value, animate = true) {
+    const clampedValue = Math.max(0, Math.min(100, value));
+
+    if (animate) {
+      this.targetPercentage = clampedValue;
+      if (!this.animationFrame && !this.isPaused && this.isVisible) {
+        this.animate();
+      }
+    } else {
+      // Instant update without animation
+      this.percentage = clampedValue;
+      this.targetPercentage = clampedValue;
+      this.updateSlider();
+    }
+  }
+
+  /**
+   * Get the current slider percentage
+   * @returns {number} Current percentage (0-100)
+   */
+  getPercentage() {
+    return this.percentage;
+  }
+
+  /**
+   * Reset the slider to its initial percentage
+   * @param {boolean} animate - Whether to animate to the initial position (default: true)
+   */
+  reset(animate = true) {
+    this.setPercentage(this.initialPercentage, animate);
+  }
+
+  // ==================== Cleanup ====================
+
   destroy() {
     this.slider.removeEventListener('pointerenter', this.handlePointerEnter);
     this.slider.removeEventListener('pointerleave', this.handlePointerLeave);
@@ -259,6 +364,10 @@ class Slider {
 
     if (this.resizeObserver) {
       this.resizeObserver.disconnect();
+    }
+
+    if (this.intersectionObserver) {
+      this.intersectionObserver.disconnect();
     }
 
     if (this.animationFrame) {
